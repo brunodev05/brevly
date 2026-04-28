@@ -3,12 +3,12 @@ version: '3.9'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: urlshortener-db
+    container_name: brevly-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: urlshortener
+      POSTGRES_DB: brevly
     ports:
       - '5432:5432'
     volumes:
@@ -19,21 +19,24 @@ services:
       timeout: 5s
       retries: 5
 
-  backend:
+  server:
     build:
-      context: ./backend
+      context: ./server
       dockerfile: Dockerfile
-    container_name: urlshortener-api
+    container_name: brevly-server
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/urlshortener
-      BASE_URL: http://localhost
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/brevly
       FRONTEND_URL: http://localhost
       PORT: '3333'
-      HOST: '0.0.0.0'
+      CLOUDFLARE_ACCOUNT_ID: ''
+      CLOUDFLARE_ACCESS_KEY_ID: ''
+      CLOUDFLARE_SECRET_ACCESS_KEY: ''
+      CLOUDFLARE_BUCKET: ''
+      CLOUDFLARE_PUBLIC_URL: ''
     ports:
       - '3333:3333'
     healthcheck:
@@ -43,14 +46,14 @@ services:
       retries: 5
       start_period: 30s
 
-  frontend:
+  web:
     build:
-      context: ./frontend
+      context: ./web
       dockerfile: Dockerfile
-    container_name: urlshortener-web
+    container_name: brevly-web
     restart: unless-stopped
     depends_on:
-      backend:
+      server:
         condition: service_healthy
     ports:
       - '80:80'
