@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and fill in the values
+# cp terraform.tfvars.example terraform.tfvars
+
+aws_region   = "us-east-1"
+project_name = "urlshortener"
+environment  = "production"
+
+# Database credentials (use a strong password in production)
+db_username = "postgres"
+db_password = "CHANGE_ME_strong_password_here"
+
+# Docker image tags (set by CI/CD pipeline via GitHub Actions)
+backend_image_tag  = "latest"
+frontend_image_tag = "latest"

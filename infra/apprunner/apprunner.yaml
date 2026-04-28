@@ -1,0 +1,33 @@
+version: 1.0
+
+# AWS App Runner configuration for the backend service
+# Deploy via: aws apprunner create-service --cli-input-yaml file://apprunner.yaml
+
+service:
+  service-name: urlshortener-backend
+  source-configuration:
+    image-repository:
+      image-identifier: ${ECR_BACKEND_URI}:latest
+      image-configuration:
+        port: "3333"
+        runtime-environment-variables:
+          NODE_ENV: production
+          PORT: "3333"
+          HOST: "0.0.0.0"
+          # Set these via AWS Secrets Manager or App Runner environment secrets:
+          # DATABASE_URL: <set via console or secrets>
+          # BASE_URL: <your App Runner URL>
+          # FRONTEND_URL: <your App Runner URL>
+      image-repository-type: ECR
+    auto-deployments-enabled: true
+  instance-configuration:
+    cpu: "0.25 vCPU"
+    memory: "0.5 GB"
+  health-check-configuration:
+    protocol: HTTP
+    path: /api/health
+    interval: 10
+    timeout: 5
+    healthy-threshold: 1
+    unhealthy-threshold: 3
+  auto-scaling-configuration-arn: ""

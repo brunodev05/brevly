@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.env.local
+.DS_Store
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.backup
+infra/terraform/terraform.tfvars
+infra/terraform/*.tfplan
+infra/terraform/crash.log

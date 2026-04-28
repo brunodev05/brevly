@@ -1,0 +1,144 @@
+name: CI/CD — Build, Push & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_BACKEND_REPO: urlshortener-backend
+  ECR_FRONTEND_REPO: urlshortener-frontend
+  ECS_CLUSTER: urlshortener-cluster
+  ECS_SERVICE_BACKEND: urlshortener-backend
+  ECS_SERVICE_FRONTEND: urlshortener-frontend
+
+jobs:
+  # ──────────────────────────────────────────────
+  # 1. Build & test backend
+  # ──────────────────────────────────────────────
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  # ──────────────────────────────────────────────
+  # 2. Build Docker images and push to ECR
+  # ──────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    needs: test-backend
+    if: github.ref == 'refs/heads/main'
+
+    outputs:
+      backend-image: ${{ steps.build-backend.outputs.image }}
+      frontend-image: ${{ steps.build-frontend.outputs.image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push backend image
+        id: build-backend
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG ./backend
+          docker push $REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG
+          docker tag $REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG $REGISTRY/$ECR_BACKEND_REPO:latest
+          docker push $REGISTRY/$ECR_BACKEND_REPO:latest
+          echo "image=$REGISTRY/$ECR_BACKEND_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build & push frontend image
+        id: build-frontend
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG ./frontend
+          docker push $REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG
+          docker tag $REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG $REGISTRY/$ECR_FRONTEND_REPO:latest
+          docker push $REGISTRY/$ECR_FRONTEND_REPO:latest
+          echo "image=$REGISTRY/$ECR_FRONTEND_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  # ──────────────────────────────────────────────
+  # 3. Deploy to ECS Fargate
+  # ──────────────────────────────────────────────
+  deploy-ecs:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy backend to ECS
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE_BACKEND \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Deploy frontend to ECS
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE_FRONTEND \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Wait for backend deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE_BACKEND \
+            --region $AWS_REGION
+
+      - name: Wait for frontend deployment
+        run: |
+          aws ecs wait services-stable \
+            --cluster $ECS_CLUSTER \
+            --services $ECS_SERVICE_FRONTEND \
+            --region $AWS_REGION
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Deploy concluído com sucesso!"
+          echo "Backend image: ${{ needs.build-and-push.outputs.backend-image }}"
+          echo "Frontend image: ${{ needs.build-and-push.outputs.frontend-image }}"
